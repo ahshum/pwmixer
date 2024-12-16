@@ -342,10 +342,6 @@ static void run_curses(struct ctl *ctl)
     int ch;
 
     while ((ch = getch())) {
-        move(0, 0);
-        clrtoeol();
-        printw("Key: %c", ch);
-
         switch (ch) {
         case 'j':
         case KEY_DOWN:
