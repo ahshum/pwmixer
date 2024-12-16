@@ -257,6 +257,23 @@ static int set_volume_mute(struct intf *intf, struct volume *volume, int *mute)
     return 0;
 }
 
+static void ctl_pipewire_free(struct ctl *ctl)
+{
+    if (ctl == NULL)
+        return;
+
+    if (ctl->mainloop)
+        pw_thread_loop_stop(ctl->mainloop);
+    if (ctl->registry)
+        pw_proxy_destroy((struct pw_proxy*)ctl->registry);
+    if (ctl->context)
+        pw_context_destroy(ctl->context);
+    if (ctl->fd >= 0)
+        spa_system_close(ctl->system, ctl->fd);
+    if (ctl->mainloop)
+        pw_thread_loop_destroy(ctl->mainloop);
+}
+
 /** curses */
 
 static void redraw(struct ctl *ctl)
@@ -391,7 +408,7 @@ static void run_curses(struct ctl *ctl)
             erase();
             break;
         case 'q':
-            pw_thread_loop_stop(ctl->mainloop);
+            ctl_pipewire_free(ctl);
             return;
         }
 
