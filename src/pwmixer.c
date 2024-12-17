@@ -346,6 +346,9 @@ static void redraw(struct ctl *ctl)
         clrtoeol();
         printw("%d", lroundf((float)intf->node.channel_volume.values[0] / VOLUME_FULL * 100));
 
+        if (intf->node.mute)
+            mvaddstr(cur, 54, "🔇");
+
         if (ctl->cursor == i)
             attroff(A_BOLD);
 
@@ -356,6 +359,21 @@ static void redraw(struct ctl *ctl)
     ctl->n_nodes = i;
 
     refresh();
+}
+
+static void toggle_curnode_mute(struct ctl *ctl)
+{
+    struct intf *intf = find_curnode(ctl);
+    int mute;
+
+    if (intf->node.mute)
+        mute = 0;
+    else
+        mute = 1;
+
+    pw_thread_loop_lock(ctl->mainloop);
+    set_volume_mute(intf, NULL, &mute);
+    pw_thread_loop_unlock(ctl->mainloop);
 }
 
 static uint32_t set_curnode_volume(struct ctl *ctl, int volume, bool relative)
@@ -405,6 +423,8 @@ static void run_curses(struct ctl *ctl)
         case 'L':
             set_curnode_volume(ctl, VOLUME_FULL / 10, true);
             break;
+        case 'm':
+            toggle_curnode_mute(ctl);
             break;
         case '0':
         case '1':
