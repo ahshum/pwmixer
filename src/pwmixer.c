@@ -276,6 +276,29 @@ static void ctl_pipewire_free(struct ctl *ctl)
 
 /** curses */
 
+static void init_curses(struct ctl *ctl)
+{
+    setlocale(LC_ALL, "");
+
+    initscr();              // Start curses mode
+    cbreak();               // Line buffering disabled
+    noecho();               // Do not echo while typing
+    keypad(stdscr, true);   // Enable special keys
+    curs_set(0);            // Hide cursor
+
+    if (has_colors()) {
+        start_color();
+
+        init_pair(1, COLOR_RED,     COLOR_BLACK);
+        init_pair(2, COLOR_GREEN,   COLOR_BLACK);
+        init_pair(3, COLOR_YELLOW,  COLOR_BLACK);
+        init_pair(4, COLOR_BLUE,    COLOR_BLACK);
+        init_pair(5, COLOR_CYAN,    COLOR_BLACK);
+        init_pair(6, COLOR_MAGENTA, COLOR_BLACK);
+        init_pair(7, COLOR_WHITE,   COLOR_BLACK);
+    }
+}
+
 static void redraw(struct ctl *ctl)
 {
     struct intf *intf;
@@ -382,9 +405,8 @@ static void run_curses(struct ctl *ctl)
         case 'L':
             set_curnode_volume(ctl, VOLUME_FULL / 10, true);
             break;
-        case '0':
-            set_curnode_volume(ctl, VOLUME_FULL, false);
             break;
+        case '0':
         case '1':
         case '2':
         case '3':
@@ -395,7 +417,7 @@ static void run_curses(struct ctl *ctl)
         case '8':
         case '9':
         {
-            uint32_t i = ch - '0';
+            uint32_t i = (ch - '0' + 9) % 10 + 1;
             set_curnode_volume(ctl, VOLUME_FULL / 10 * i, false);
             break;
         }
@@ -793,11 +815,7 @@ int main(int argc, char *argv[])
     pw_thread_loop_unlock(ctl.mainloop);
 
     // init curses
-    initscr();              // Start curses mode
-    cbreak();               // Line buffering disabled
-    noecho();               // Do not echo while typing
-    keypad(stdscr, true);   // Enable special keys
-    curs_set(0);            // Hide cursor
+    init_curses(&ctl);
 
     // run curses
     run_curses(&ctl);
