@@ -27,7 +27,7 @@ static struct volume {
 static struct ctl {
     struct pw_thread_loop *mainloop;
     struct pw_context *context;
-  	struct spa_system *system;
+    struct spa_system *system;
 
     struct pw_core *core;
 
