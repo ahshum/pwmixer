@@ -20,7 +20,7 @@ pacman -Ss base-devel cmake ncurses libpipewire
 ### Debian
 
 ```
-apt-get install build-essential libpipewire-0.3-dev libncurses6 libncurses-dev
+apt-get install build-essential cmake pkg-config libpipewire-0.3-dev libncurses6 libncurses-dev
 ```
 
 ### Compile
