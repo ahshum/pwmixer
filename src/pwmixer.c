@@ -471,12 +471,12 @@ static void parse_props(struct intf *intf, const struct spa_pod *param)
         case SPA_PROP_volume:
             if (spa_pod_get_float(&prop->value, &intf->node.volume) < 0)
                 continue;
-            log_debug("update node %d volume", intf->id);
+            log_debug("update node#%d volume", intf->id);
             break;
         case SPA_PROP_mute:
             if (spa_pod_get_bool(&prop->value, &intf->node.mute) < 0)
                 continue;
-            log_debug("update node %d mute", intf->id);
+            log_debug("update node#%d mute", intf->id);
             break;
         case SPA_PROP_channelVolumes:
         {
@@ -491,7 +491,7 @@ static void parse_props(struct intf *intf, const struct spa_pod *param)
                 intf->node.channel_volume.values[i] =
                     volume_from_linear(channels[i], ctl->volume_method);
 
-            log_debug("update node %d channelVolumes", intf->id);
+            log_debug("update node#%d channelVolumes", intf->id);
             break;
         }
         default:
@@ -526,7 +526,7 @@ static void node_event_info(void *data, const struct pw_node_info *info)
                 SPA_FLAG_UPDATE(intf->node.flags, NODE_FLAG_SOURCE, true);
         }
 
-        log_debug("#%d: device_id:%d profile_device_id:%d", intf->id,
+        log_debug("node#%d: device_id:%d profile_device_id:%d", intf->id,
             intf->node.device_id, intf->node.profile_device_id);
     }
     if (info->change_mask & PW_NODE_CHANGE_MASK_PARAMS) {
@@ -625,7 +625,7 @@ static void device_event_param(void *data, int seg,
         else
             intf->device.active_route_input = id;
 
-        log_debug("#%d: active %s route id:%d device:%d", intf->id,
+        log_debug("device#%d: active %s route id:%d device:%d", intf->id,
             direction == SPA_DIRECTION_OUTPUT ? "output" : "input",
             id, device_id);
 
@@ -740,12 +740,12 @@ static void registry_event_global(void *data, uint32_t id,
     if (spa_streq(type, PW_TYPE_INTERFACE_Node)) {
         if ((str = spa_dict_lookup(props, PW_KEY_MEDIA_CLASS)) == NULL)
             return;
-        log_debug("found node %d type:%s", id, str);
+        log_debug("found node#%d type:%s", id, str);
         info = &node_info;
     } else if (spa_streq(type, PW_TYPE_INTERFACE_Device)) {
         if ((str = spa_dict_lookup(props, PW_KEY_MEDIA_CLASS)) == NULL)
             return;
-        log_debug("found device %d type:%s", id, str);
+        log_debug("found device#%d type:%s", id, str);
         info = &device_info;
     } else if (spa_streq(type, PW_TYPE_INTERFACE_Metadata)) {
         if ((str = spa_dict_lookup(props, PW_KEY_METADATA_NAME)) == NULL ||
@@ -753,7 +753,7 @@ static void registry_event_global(void *data, uint32_t id,
         {
             return;
         }
-        log_debug("found metadata %d type:%s", id, str);
+        log_debug("found metadata#%d name:%s", id, str);
         info = &metadata_info;
     }
     if (info == NULL)
