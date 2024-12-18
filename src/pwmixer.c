@@ -19,12 +19,12 @@
 #define VOLUME_FULL ((uint32_t) 0x1000U)
 #define VOLUME_MAX  ((uint32_t) 0xA000U)
 
-static struct volume {
+struct volume {
     uint32_t n_channels;
     uint32_t values[SPA_AUDIO_MAX_CHANNELS];
 };
 
-static struct ctl {
+struct ctl {
     struct pw_thread_loop *mainloop;
     struct pw_context *context;
     struct spa_system *system;
@@ -54,13 +54,13 @@ static struct ctl {
     uint32_t node_flags;
 };
 
-static struct intf_info {
+struct intf_info {
     const char *type;
     uint32_t version;
     const void *events;
 };
 
-static struct intf {
+struct intf {
     struct ctl *ctl;
 
     struct spa_list ref;
