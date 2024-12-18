@@ -48,13 +48,11 @@ static struct ctl {
 
     char default_sink[1024];
     char default_source[1024];
-    struct spa_list nodes;
-    uint32_t n_nodes;
+    struct spa_list refs;
+    uint32_t n_refs;
     uint32_t cursor;
     uint32_t node_flags;
 };
-
-static struct intf;
 
 static struct intf_info {
     const char *type;
@@ -65,7 +63,7 @@ static struct intf_info {
 static struct intf {
     struct ctl *ctl;
 
-    struct spa_list link;
+    struct spa_list ref;
     struct pw_proxy *proxy;
     struct spa_hook proxy_listener;
     struct spa_hook object_listener;
@@ -148,7 +146,7 @@ static struct intf *find_node(struct ctl *ctl, uint32_t id,
     struct intf *intf;
     const char *str;
 
-    spa_list_for_each(intf, &ctl->nodes, link) {
+    spa_list_for_each(intf, &ctl->refs, ref) {
         if (intf->id == id &&
             (type == NULL || spa_streq(intf->info->type, type)))
         {
@@ -169,7 +167,7 @@ static struct intf *find_curnode(struct ctl *ctl)
     struct intf *intf;
     uint32_t i = 0;
 
-    spa_list_for_each(intf, &ctl->nodes, link) {
+    spa_list_for_each(intf, &ctl->refs, ref) {
         if (!SPA_FLAG_IS_SET(intf->node.flags, ctl->node_flags))
             continue;
         if (ctl->cursor == i)
@@ -321,7 +319,7 @@ static void redraw(struct ctl *ctl)
     printw("F2 Input");
     attroff(A_BOLD);
 
-    spa_list_for_each(intf, &ctl->nodes, link) {
+    spa_list_for_each(intf, &ctl->refs, ref) {
         if (!SPA_FLAG_IS_SET(intf->node.flags, ctl->node_flags))
             continue;
         if (intf->node.channel_volume.n_channels == 0)
@@ -356,7 +354,7 @@ static void redraw(struct ctl *ctl)
         cur += 2;
     }
 
-    ctl->n_nodes = i;
+    ctl->n_refs = i;
 
     refresh();
 }
@@ -403,11 +401,11 @@ static void run_curses(struct ctl *ctl)
         switch (ch) {
         case 'j':
         case KEY_DOWN:
-            ctl->cursor = (ctl->cursor + 1) % ctl->n_nodes;
+            ctl->cursor = (ctl->cursor + 1) % ctl->n_refs;
             break;
         case 'k':
         case KEY_UP:
-            ctl->cursor = (ctl->cursor - 1 + ctl->n_nodes) % ctl->n_nodes;
+            ctl->cursor = (ctl->cursor - 1 + ctl->n_refs) % ctl->n_refs;
             break;
         case 'h':
         case KEY_LEFT:
@@ -712,7 +710,7 @@ static void proxy_event_removed(void *data)
 static void proxy_event_destroy(void *data)
 {
     struct intf *intf = data;
-    spa_list_remove(&intf->link);
+    spa_list_remove(&intf->ref);
     intf->proxy = NULL;
     pw_properties_free(intf->props);
 }
@@ -768,8 +766,8 @@ static void registry_event_global(void *data, uint32_t id,
     intf->props = props ? pw_properties_new_dict(props) : NULL;
     intf->proxy = proxy;
     intf->info = info;
-    spa_list_append(&ctl->nodes, &intf->link);
-    ctl->n_nodes++;
+    spa_list_append(&ctl->refs, &intf->ref);
+    ctl->n_refs++;
 
     pw_proxy_add_listener(proxy,
         &intf->proxy_listener,
@@ -798,11 +796,11 @@ int main(int argc, char *argv[])
     log_file = fopen("pwmixer.log", "w");
     pw_init(NULL, NULL);
     ctl.cursor = 0;
-    ctl.n_nodes = 0;
+    ctl.n_refs = 0;
     ctl.metadata = NULL;
     ctl.node_flags = NODE_FLAG_SINK;
     ctl.volume_method = VOLUME_METHOD_CUBIC;
-    spa_list_init(&ctl.nodes);
+    spa_list_init(&ctl.refs);
 
     ctl.mainloop = pw_thread_loop_new("pwmixer", NULL);
     loop = pw_thread_loop_get_loop(ctl.mainloop);
