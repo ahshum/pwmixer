@@ -24,6 +24,16 @@ struct volume {
     uint32_t values[SPA_AUDIO_MAX_CHANNELS];
 };
 
+enum volume_method {
+    VOLUME_METHOD_LINEAR,
+    VOLUME_METHOD_CUBIC,
+};
+
+enum node_flag {
+    NODE_FLAG_SINK = 1 << 0,
+    NODE_FLAG_SOURCE = 1 << 1,
+};
+
 struct ctl {
     struct pw_thread_loop *mainloop;
     struct pw_context *context;
@@ -42,16 +52,14 @@ struct ctl {
     int last_seq;
     int error;
 
-#define VOLUME_METHOD_LINEAR (0)
-#define VOLUME_METHOD_CUBIC  (1)
-    int volume_method;
+    enum volume_method volume_method;
 
     char default_sink[1024];
     char default_source[1024];
     struct spa_list refs;
     uint32_t n_refs;
     uint32_t cursor;
-    uint32_t node_flags;
+    enum node_flag node_flags;
 };
 
 struct intf_info {
@@ -75,9 +83,7 @@ struct intf {
 
     union {
         struct {
-#define NODE_FLAG_SINK   (1<<0)
-#define NODE_FLAG_SOURCE (1<<1)
-            uint32_t flags;
+            enum node_flag flags;
             uint32_t device_id;
             uint32_t profile_device_id;
             float volume;
@@ -118,7 +124,7 @@ static int bound_int(int val, int min, int max)
         return val;
 }
 
-static uint32_t volume_from_linear(float vol, int method)
+static uint32_t volume_from_linear(float vol, enum volume_method method)
 {
     switch (method) {
     case VOLUME_METHOD_CUBIC:
@@ -128,7 +134,7 @@ static uint32_t volume_from_linear(float vol, int method)
     return bound_int(lroundf(vol * VOLUME_FULL), VOLUME_ZERO, VOLUME_MAX);
 }
 
-static float volume_to_linear(uint32_t vol, int method)
+static float volume_to_linear(uint32_t vol, enum volume_method method)
 {
     float v = ((float)vol) / VOLUME_FULL;
 
