@@ -533,9 +533,9 @@ static void node_event_info(void *data, const struct pw_node_info *info)
 
         if ((str = spa_dict_lookup(info->props, PW_KEY_MEDIA_CLASS))) {
             if (spa_streq(str, "Audio/Sink"))
-                SPA_FLAG_UPDATE(intf->node.flags, NODE_FLAG_SINK, true);
+                SPA_FLAG_SET(intf->node.flags, NODE_FLAG_SINK);
             else if (spa_streq(str, "Audio/Source"))
-                SPA_FLAG_UPDATE(intf->node.flags, NODE_FLAG_SOURCE, true);
+                SPA_FLAG_SET(intf->node.flags, NODE_FLAG_SOURCE);
         }
 
         log_debug("node#%d: device_id:%d profile_device_id:%d", intf->id,
@@ -861,7 +861,7 @@ static void registry_event_global(void *data, uint32_t id,
             &intf->object_listener,
             info->events, intf);
     }
-    if (info->type == PW_TYPE_INTERFACE_Metadata)
+    if (spa_streq(type, PW_TYPE_INTERFACE_Metadata))
         ctl->metadata = (struct pw_metadata*)proxy;
 }
 
