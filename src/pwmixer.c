@@ -178,14 +178,55 @@ static struct intf *find_node(struct ctl *ctl, uint32_t id,
 
 static struct intf *find_curnode(struct ctl *ctl)
 {
-    struct intf *intf;
+    struct intf *intf,
+        *dst_port, *target_link,
+        *src_port, *src_node;
     uint32_t i = 0;
 
     spa_list_for_each(intf, &ctl->refs, ref) {
+        if (!spa_streq(intf->info->type, PW_TYPE_INTERFACE_Node))
+            continue;
         if (!SPA_FLAG_IS_SET(intf->node.flags, ctl->node_flags))
             continue;
         if (ctl->cursor == i)
             return intf;
+
+        spa_list_for_each(dst_port, &ctl->refs, ref) {
+            if (!spa_streq(dst_port->info->type, PW_TYPE_INTERFACE_Port))
+                continue;
+            if (dst_port->port.node != intf->id ||
+                (ctl->node_flags & NODE_FLAG_SINK &&
+                dst_port->port.direction != SPA_DIRECTION_INPUT) ||
+                (ctl->node_flags & NODE_FLAG_SOURCE &&
+                dst_port->port.direction != SPA_DIRECTION_OUTPUT))
+            {
+                continue;
+            }
+
+            spa_list_for_each(target_link, &ctl->refs, ref) {
+                if (!spa_streq(target_link->info->type, PW_TYPE_INTERFACE_Link))
+                    continue;
+
+                if (ctl->node_flags & NODE_FLAG_SINK &&
+                    dst_port->id == target_link->link.input_port)
+                {
+                    src_port = find_node(ctl, target_link->link.output_port, NULL, NULL);
+                } else if (ctl->node_flags & NODE_FLAG_SOURCE &&
+                    dst_port->id == target_link->link.output_port)
+                {
+                    src_port = find_node(ctl, target_link->link.input_port, NULL, NULL);
+                } else
+                    continue;
+
+                i++;
+                if (ctl->cursor == i)
+                    return find_node(ctl, src_port->port.node, NULL, NULL);
+            }
+
+            // show only single port
+            break;
+        }
+
         i++;
     }
     return NULL;
@@ -313,10 +354,13 @@ static void init_curses(struct ctl *ctl)
 
 static void redraw(struct ctl *ctl)
 {
-    struct intf *intf;
+    struct intf *intf,
+        *dst_port, *target_link,
+        *src_port, *src_node;
     uint32_t i = 0, cur = 2;
     const char *str;
 
+    erase();
     move(0, 1);
     if (ctl->node_flags & NODE_FLAG_SINK)
         attron(A_BOLD);
@@ -352,17 +396,73 @@ static void redraw(struct ctl *ctl)
         }
 
         move(cur, 2);
-        printw("%s", pw_properties_get(intf->props, PW_KEY_NODE_DESCRIPTION));
+        printw("%s", pw_properties_get(intf->props, PW_KEY_NODE_NAME));
 
         move(cur, 50);
         clrtoeol();
         printw("%d", lroundf((float)intf->node.channel_volume.values[0] / VOLUME_FULL * 100));
 
         if (intf->node.mute)
-            mvaddstr(cur, 54, "🔇");
+            mvaddstr(cur, 54, "M");
 
         if (ctl->cursor == i)
             attroff(A_BOLD);
+
+        spa_list_for_each(dst_port, &ctl->refs, ref) {
+            if (!spa_streq(dst_port->info->type, PW_TYPE_INTERFACE_Port))
+                continue;
+            if (dst_port->port.node != intf->id ||
+                (ctl->node_flags & NODE_FLAG_SINK &&
+                dst_port->port.direction != SPA_DIRECTION_INPUT) ||
+                (ctl->node_flags & NODE_FLAG_SOURCE &&
+                dst_port->port.direction != SPA_DIRECTION_OUTPUT))
+            {
+                continue;
+            }
+            log_debug("redraw dst_port#%d", dst_port->id);
+
+            spa_list_for_each(target_link, &ctl->refs, ref) {
+                if (!spa_streq(target_link->info->type, PW_TYPE_INTERFACE_Link))
+                    continue;
+
+                if (ctl->node_flags & NODE_FLAG_SINK &&
+                    dst_port->id == target_link->link.input_port)
+                {
+                    src_port = find_node(ctl, target_link->link.output_port, NULL, NULL);
+                } else if (ctl->node_flags & NODE_FLAG_SOURCE &&
+                    dst_port->id == target_link->link.output_port)
+                {
+                    src_port = find_node(ctl, target_link->link.input_port, NULL, NULL);
+                } else
+                    continue;
+
+                i++;
+                cur++;
+
+                if (ctl->cursor == i)
+                    attron(A_BOLD);
+
+                log_debug("redraw src_port#%d", src_port->id);
+                src_node = find_node(ctl, src_port->port.node, NULL, NULL);
+                log_debug("redraw src_node#%d", src_node->id);
+
+                move(cur, 2);
+                clrtoeol();
+                printw("└─%s", pw_properties_get(src_node->props, PW_KEY_NODE_NAME));
+
+                move(cur, 50);
+                printw("%d", lroundf((float)src_node->node.channel_volume.values[0] / VOLUME_FULL * 100));
+
+                if (ctl->cursor == i)
+                    attroff(A_BOLD);
+            }
+
+            // show only single port
+            break;
+        }
+
+        move(cur + 1, 0);
+        clrtoeol();
 
         i++;
         cur += 2;
