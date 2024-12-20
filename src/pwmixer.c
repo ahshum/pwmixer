@@ -95,6 +95,14 @@ struct intf {
             uint32_t active_route_input;
             uint32_t active_route_output;
         } device;
+        struct {
+            enum pw_direction direction;
+            uint32_t node;
+        } port;
+        struct {
+            uint32_t output_port;
+            uint32_t input_port;
+        } link;
     };
 };
 
@@ -705,6 +713,70 @@ static const struct intf_info metadata_info = {
     .events = &metadata_events,
 };
 
+/** link */
+
+static void link_event_info(void *data, const struct pw_link_info *info)
+{
+    struct intf *intf = data, *node;
+    struct ctl *ctl = intf->ctl;
+
+    if (info->change_mask & PW_LINK_CHANGE_MASK_PROPS) {
+        intf->link.output_port = info->output_port_id;
+        intf->link.input_port = info->input_port_id;
+
+        log_debug("link#%d: out:%d in:%d", intf->id,
+            intf->link.output_port, intf->link.input_port);
+    }
+
+    redraw(ctl);
+}
+
+static const struct pw_link_events link_events = {
+    PW_VERSION_LINK_EVENTS,
+    .info = link_event_info,
+};
+
+static const struct intf_info link_info = {
+    .type = PW_TYPE_INTERFACE_Link,
+    .version = PW_VERSION_LINK,
+    .events = &link_events,
+};
+
+/** port */
+
+static void port_event_info(void *data, const struct pw_port_info *info)
+{
+    struct intf *intf = data;
+    struct ctl *ctl = intf->ctl;
+    const char *str;
+
+    if (info->change_mask & PW_PORT_CHANGE_MASK_PROPS) {
+        if ((str = pw_properties_get(intf->props, PW_KEY_NODE_ID)) != NULL)
+            intf->port.node = atoi(str);
+        else
+            intf->port.node = SPA_ID_INVALID;
+
+        intf->port.direction = info->direction;
+
+        log_debug("port#%d node:%d direction:%s", intf->id,
+            intf->port.node,
+            intf->port.direction == SPA_DIRECTION_OUTPUT ? "output" : "input");
+    }
+
+    redraw(ctl);
+}
+
+const struct pw_port_events port_events = {
+    PW_VERSION_PORT_EVENTS,
+    .info = port_event_info,
+};
+
+const struct intf_info port_info = {
+    .type = PW_TYPE_INTERFACE_Port,
+    .version = PW_VERSION_PORT,
+    .events = &port_events,
+};
+
 /** proxy */
 
 static void proxy_event_removed(void *data)
@@ -759,8 +831,13 @@ static void registry_event_global(void *data, uint32_t id,
         }
         log_debug("found metadata#%d name:%s", id, str);
         info = &metadata_info;
-    }
-    if (info == NULL)
+    } else if (spa_streq(type, PW_TYPE_INTERFACE_Link)) {
+        log_debug("found link#%d", id);
+        info = &link_info;
+    } else if (spa_streq(type, PW_TYPE_INTERFACE_Port)) {
+        log_debug("found port#%d", id);
+        info = &port_info;
+    } else
         return;
 
     proxy = pw_registry_bind(ctl->registry, id,
