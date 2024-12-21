@@ -31,7 +31,7 @@ static void test_array()
     array_remove(arr, 5);
     titem = array_get(arr, 5);
     assert(titem->n == aitem[6].n);
-    assert(array_index(arr, &aitem[9]) == 8);
+    assert(array_find_index(arr, &aitem[9]) == 8);
 
     assert(array_free(arr) == 0);
 }

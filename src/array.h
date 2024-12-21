@@ -19,7 +19,7 @@ void *array_get(struct array *array, int index);
 
 void *array_remove(struct array *array, int index);
 
-int array_index(struct array *array, void *item);
+int array_find_index(struct array *array, void *item);
 
 int array_free(struct array *array);
 

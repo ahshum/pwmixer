@@ -59,7 +59,7 @@ void *array_remove(struct array *arr, int index)
     arr->length--;
 }
 
-int array_index(struct array *arr, void *item)
+int array_find_index(struct array *arr, void *item)
 {
     for (uint32_t i = 0; i < arr->length; i++) {
         if (memcmp((char*)arr->data + i * arr->item_size, item, arr->item_size) == 0)
