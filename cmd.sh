@@ -1,20 +1,24 @@
 #!/usr/bin/env sh
 
+prepare() {
+  [ ! -d "build" ] && mkdir build
+  cd build
+}
+
 cmd="$1" && [ "$#" -ge 1 ] && shift
 
 case "$cmd" in
   cmake)
-    [ ! -d "build/" ] && mkdir build/
-    cd build
+    prepare
     cmake .. "$@"
     ;;
 
   mr)
-    cd build
-    make
+    prepare
+    cmake --build .
     [ "$?" -gt 0 ] && exit
     PIPEWIRE_LOG=pipewire.log \
     PIPEWIRE_DEBUG=T \
-      ./pwmixer
+      ./src/pwmixer
     ;;
 esac
