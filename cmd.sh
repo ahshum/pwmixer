@@ -21,4 +21,12 @@ case "$cmd" in
     PIPEWIRE_DEBUG=T \
       ./src/pwmixer
     ;;
+
+  t)
+    prepare
+    cmake .. "$@"
+    cmake --build .
+    cd test
+    ctest
+    ;;
 esac
