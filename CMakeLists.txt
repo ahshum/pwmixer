@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(pwmixer C)
+project(PWMIXER)
 
 set(CMAKE_C_STANDARD 23)
 
@@ -11,13 +11,4 @@ include_directories(
   ${PIPEWIRE_INCLUDE_DIRS}
   ${CURSES_INCLUDE_DIR})
 
-set(SOURCES
-  src/pwmixer.c)
-
-add_executable(pwmixer
-  ${SOURCES})
-
-target_link_libraries(pwmixer
-  m
-  ${PIPEWIRE_LIBRARIES}
-  ${CURSES_LIBRARIES})
+add_subdirectory(src)
