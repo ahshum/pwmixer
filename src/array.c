@@ -7,7 +7,7 @@
 
 struct array *array_new(size_t item_size)
 {
-    struct array *arr = (struct array*)malloc(sizeof(struct array));
+    struct array *arr = (struct array*)malloc(sizeof(struct array*));
     if (!arr) {
         return NULL;
     }
@@ -30,11 +30,10 @@ int array_append(struct array *arr, void *item)
         arr->capacity *= 2;
         arr->data = realloc(arr->data, arr->capacity * arr->item_size);
         if (!arr->data)
-            return 0;
+            return -1;
     }
 
-    memcpy((char*)arr->data + arr->length * arr->item_size,
-        item, arr->item_size);
+    arr->data[arr->length] = item;
     arr->length++;
 
     return arr->length;
@@ -44,25 +43,26 @@ void *array_get(struct array *arr, int index)
 {
     if (index >= arr->length)
         return NULL;
-    return (char*)arr->data + (index * arr->item_size);
+    return arr->data[index];
 }
 
-void *array_remove(struct array *arr, int index)
+int array_remove(struct array *arr, int index)
 {
-    if (index >= arr->length)
-        return NULL;
+    if (index >= arr->length || index < 0)
+        return -1;
 
     char *target = (char*)arr->data + (index * arr->item_size);
-    if (index < arr->length - 1)
-        memmove(target, target + arr->item_size,
-            (arr->length - index - 1) * arr->item_size);
+    for (int i = index + 1; i < arr->length; i++)
+        arr->data[i - 1] = arr->data[i];
     arr->length--;
+
+    return arr->length;
 }
 
 int array_find_index(struct array *arr, void *item)
 {
     for (uint32_t i = 0; i < arr->length; i++) {
-        if (memcmp((char*)arr->data + i * arr->item_size, item, arr->item_size) == 0)
+        if (arr->data[i] == item)
             return i;
     }
     return -1;

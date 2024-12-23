@@ -5,7 +5,7 @@
 #include <stdint.h>
 
 struct array {
-    void *data;
+    void **data;
     size_t item_size;
     int length;
     int capacity;
@@ -17,7 +17,7 @@ int array_append(struct array *array, void *item);
 
 void *array_get(struct array *array, int index);
 
-void *array_remove(struct array *array, int index);
+int array_remove(struct array *array, int index);
 
 int array_find_index(struct array *array, void *item);
 
