@@ -35,7 +35,6 @@ int array_append(struct array *arr, void *item)
 
     arr->data[arr->length] = item;
     arr->length++;
-
     return arr->length;
 }
 
@@ -55,13 +54,15 @@ int array_remove(struct array *arr, int index)
     for (int i = index + 1; i < arr->length; i++)
         arr->data[i - 1] = arr->data[i];
     arr->length--;
-
     return arr->length;
 }
 
 int array_find_index(struct array *arr, void *item)
 {
-    for (uint32_t i = 0; i < arr->length; i++) {
+    if (!arr)
+        return -1;
+
+    for (int i = 0; i < arr->length; i++) {
         if (arr->data[i] == item)
             return i;
     }
