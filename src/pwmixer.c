@@ -39,6 +39,14 @@ enum node_flag {
     NODE_FLAG_INPUT = 1 << 4,
 };
 
+struct intf;
+
+struct group {
+    struct intf *parent;
+    struct intf *children[32];
+    int n_children;
+};
+
 struct ctl {
     struct pw_thread_loop *mainloop;
     struct pw_context *context;
@@ -65,6 +73,9 @@ struct ctl {
     uint32_t n_refs;
     uint32_t cursor;
     enum node_flag node_flags;
+
+    struct group group[32];
+    int n_group;
 };
 
 struct intf_info {
@@ -198,57 +209,25 @@ static struct intf *find_node(struct ctl *ctl, uint32_t id,
 
 static struct intf *find_curnode(struct ctl *ctl)
 {
-    struct intf *intf,
-        *dst_port, *target_link,
-        *src_port, *src_node;
-    uint32_t i = 0;
+    struct intf *intf[2];
+    int cur = 0;
 
-    spa_list_for_each(intf, &ctl->refs, ref) {
-        if (!spa_streq(intf->info->type, PW_TYPE_INTERFACE_Node))
+    for (int i = 0; i < ctl->n_group; i++) {
+        if (cur == ctl->cursor)
+            return ctl->group[i].parent;
+        else if (cur + ctl->group[i].n_children > ctl->cursor) {
+            cur += 1 + ctl->group[i].n_children;
             continue;
-        if (!SPA_FLAG_IS_SET(intf->node.flags, ctl->node_flags))
-            continue;
-        if (ctl->cursor == i)
-            return intf;
-
-        spa_list_for_each(dst_port, &ctl->refs, ref) {
-            if (!spa_streq(dst_port->info->type, PW_TYPE_INTERFACE_Port))
-                continue;
-            if (dst_port->port.node != intf->id ||
-                (ctl->node_flags & NODE_FLAG_SINK &&
-                dst_port->port.direction != SPA_DIRECTION_INPUT) ||
-                (ctl->node_flags & NODE_FLAG_SOURCE &&
-                dst_port->port.direction != SPA_DIRECTION_OUTPUT))
-            {
-                continue;
-            }
-
-            spa_list_for_each(target_link, &ctl->refs, ref) {
-                if (!spa_streq(target_link->info->type, PW_TYPE_INTERFACE_Link))
-                    continue;
-
-                if (ctl->node_flags & NODE_FLAG_SINK &&
-                    dst_port->id == target_link->link.input_port)
-                {
-                    src_port = find_node(ctl, target_link->link.output_port, NULL, NULL);
-                } else if (ctl->node_flags & NODE_FLAG_SOURCE &&
-                    dst_port->id == target_link->link.output_port)
-                {
-                    src_port = find_node(ctl, target_link->link.input_port, NULL, NULL);
-                } else
-                    continue;
-
-                i++;
-                if (ctl->cursor == i)
-                    return find_node(ctl, src_port->port.node, NULL, NULL);
-            }
-
-            // show only single port
-            break;
         }
 
-        i++;
+        for (int j = 0; j < ctl->group[i].n_children; j++) {
+            cur++;
+            if (cur == ctl->cursor)
+                return ctl->group[i].children[j];
+        }
+        cur++;
     }
+
     return NULL;
 }
 
@@ -347,6 +326,14 @@ static void ctl_pipewire_free(struct ctl *ctl)
         pw_thread_loop_destroy(ctl->mainloop);
 }
 
+static enum pw_direction cur_direction(struct ctl *ctl)
+{
+    if (ctl->node_flags & NODE_FLAG_SINK)
+        return PW_DIRECTION_INPUT;
+    else
+        return PW_DIRECTION_OUTPUT;
+}
+
 /** curses */
 
 static void init_curses(struct ctl *ctl)
@@ -372,15 +359,120 @@ static void init_curses(struct ctl *ctl)
     }
 }
 
+static void sync_active(struct ctl *ctl)
+{
+    struct intf *intf, *target[2], **children;
+    enum pw_direction direction = cur_direction(ctl);
+    int dup[32], n_dup, d, n_children, rows;
+
+    rows = 0;
+    ctl->n_group = 0;
+    spa_list_for_each(intf, &ctl->refs, ref) {
+        if (!spa_streq(intf->info->type, PW_TYPE_INTERFACE_Node))
+            continue;
+        if (!SPA_FLAG_IS_SET(intf->node.flags, ctl->node_flags))
+            continue;
+
+        children = ctl->group[ctl->n_group].children;
+        n_children = 0;
+        n_dup = 0;
+        for (int i = 0; i < intf->node.links->length; i++) {
+            target[0] = array_get(intf->node.links, i);
+            if (direction == PW_DIRECTION_INPUT)
+                target[1] = target[0]->link.output_node_ref;
+            else
+                target[1] = target[0]->link.input_node_ref;
+            if (intf->id == target[1]->id)
+                continue;
+
+            for (d = 0; d < n_dup; d++)
+                if (dup[d] == target[1]->id)
+                    break;
+            if (d >= n_dup)
+                dup[n_dup++] = target[1]->id;
+            else
+                continue;
+
+            children[n_children++] = target[1];
+        }
+
+        ctl->group[ctl->n_group].n_children = n_children;
+        ctl->group[ctl->n_group].parent = intf;
+        ctl->n_group++;
+
+        rows += 1 + n_children;
+    }
+
+    ctl->n_refs = rows;
+}
+
+static void draw_intf(struct intf *intf, int row,
+    int is_parent, int is_active, int is_end)
+{
+    struct ctl *ctl = intf->ctl;
+    const char *str;
+    int b, vol, i;
+
+    if (is_active)
+        attron(A_BOLD);
+
+    if ((str = pw_properties_get(intf->props, PW_KEY_NODE_NAME)) &&
+        (spa_streq(str, ctl->default_sink) || spa_streq(str, ctl->default_source)))
+    {
+        move(row, 1);
+        printw("*");
+    }
+
+    move(row, 2);
+    if (!is_parent && !is_end)
+        printw("|─");
+    else if (!is_parent)
+        printw("└─");
+
+    if ((b = pw_properties_get_bool(intf->props, PW_KEY_NODE_VIRTUAL, 0)))
+        printw("%s", pw_properties_get(intf->props, PW_KEY_NODE_NAME));
+    else if (intf->node.flags & NODE_FLAG_STREAM)
+        printw("%s: %s",
+            pw_properties_get(intf->props, PW_KEY_NODE_NAME),
+            pw_properties_get(intf->props, PW_KEY_MEDIA_NAME));
+    else
+        printw("%s", pw_properties_get(intf->props, PW_KEY_NODE_NAME));
+
+    move(row, 60);
+    vol = lroundf((float)intf->node.channel_volume.values[0] / VOLUME_FULL * 100);
+    printw("%d", vol);
+
+    if (intf->node.mute) {
+        move(row, 64);
+        attron(COLOR_PAIR(3));
+        printw("M");
+        attroff(COLOR_PAIR(3));
+    }
+
+    move(row, 66);
+    if (!intf->node.mute)
+        attron(COLOR_PAIR(2));
+    for (i = 0; i < vol && i < 150; i++)
+        printw("|");
+    if (!intf->node.mute)
+        attroff(COLOR_PAIR(2));
+
+    for (; i < 100; i++)
+        printw("-");
+
+    if (is_active)
+        attroff(A_BOLD);
+}
+
 static void redraw(struct ctl *ctl)
 {
-    struct intf *intf,
-        *dst_port, *target_link,
-        *src_port, *src_node;
-    uint32_t i = 0, cur = 2;
-    const char *str;
+    struct intf *intf, *child;
+    enum pw_direction direction = cur_direction(ctl);
+    int is_active, row = 2, cur = 0, i, j;
 
+    sync_active(ctl);
     erase();
+
     move(0, 1);
     if (ctl->node_flags & NODE_FLAG_SINK)
         attron(A_BOLD);
@@ -397,98 +489,21 @@ static void redraw(struct ctl *ctl)
     printw("F2 Input");
     attroff(A_BOLD);
 
-    spa_list_for_each(intf, &ctl->refs, ref) {
-        if (!SPA_FLAG_IS_SET(intf->node.flags, ctl->node_flags))
-            continue;
-        if (intf->node.channel_volume.n_channels == 0)
-            continue;
+    for (i = 0; i < ctl->n_group; i++) {
+        intf = ctl->group[i].parent;
+        draw_intf(intf, row, 1, cur == ctl->cursor, 0);
 
-        move(cur, 0);
-        clrtoeol();
-        if (ctl->cursor == i)
-            attron(A_BOLD);
-
-        if ((str = pw_properties_get(intf->props, PW_KEY_NODE_NAME)) != NULL &&
-            (spa_streq(str, ctl->default_sink) || spa_streq(str, ctl->default_source)))
-        {
-            move(cur, 1);
-            printw("*");
+        for (j = 0; j < ctl->group[i].n_children; j++) {
+            cur++;
+            child = ctl->group[i].children[j];
+            draw_intf(child, row + 1 + j, 0,
+                cur == ctl->cursor,
+                j + 1 == ctl->group[i].n_children);
         }
 
-        move(cur, 2);
-        printw("%s", pw_properties_get(intf->props, PW_KEY_NODE_NAME));
-
-        move(cur, 50);
-        clrtoeol();
-        printw("%d", lroundf((float)intf->node.channel_volume.values[0] / VOLUME_FULL * 100));
-
-        if (intf->node.mute)
-            mvaddstr(cur, 54, "M");
-
-        if (ctl->cursor == i)
-            attroff(A_BOLD);
-
-        spa_list_for_each(dst_port, &ctl->refs, ref) {
-            if (!spa_streq(dst_port->info->type, PW_TYPE_INTERFACE_Port))
-                continue;
-            if (dst_port->port.node != intf->id ||
-                (ctl->node_flags & NODE_FLAG_SINK &&
-                dst_port->port.direction != SPA_DIRECTION_INPUT) ||
-                (ctl->node_flags & NODE_FLAG_SOURCE &&
-                dst_port->port.direction != SPA_DIRECTION_OUTPUT))
-            {
-                continue;
-            }
-            log_debug("redraw dst_port#%d", dst_port->id);
-
-            spa_list_for_each(target_link, &ctl->refs, ref) {
-                if (!spa_streq(target_link->info->type, PW_TYPE_INTERFACE_Link))
-                    continue;
-
-                if (ctl->node_flags & NODE_FLAG_SINK &&
-                    dst_port->id == target_link->link.input_port)
-                {
-                    src_port = find_node(ctl, target_link->link.output_port, NULL, NULL);
-                } else if (ctl->node_flags & NODE_FLAG_SOURCE &&
-                    dst_port->id == target_link->link.output_port)
-                {
-                    src_port = find_node(ctl, target_link->link.input_port, NULL, NULL);
-                } else
-                    continue;
-
-                i++;
-                cur++;
-
-                if (ctl->cursor == i)
-                    attron(A_BOLD);
-
-                log_debug("redraw src_port#%d", src_port->id);
-                src_node = find_node(ctl, src_port->port.node, NULL, NULL);
-                log_debug("redraw src_node#%d", src_node->id);
-
-                move(cur, 2);
-                clrtoeol();
-                printw("└─%s", pw_properties_get(src_node->props, PW_KEY_NODE_NAME));
-
-                move(cur, 50);
-                printw("%d", lroundf((float)src_node->node.channel_volume.values[0] / VOLUME_FULL * 100));
-
-                if (ctl->cursor == i)
-                    attroff(A_BOLD);
-            }
-
-            // show only single port
-            break;
-        }
-
-        move(cur + 1, 0);
-        clrtoeol();
-
-        i++;
-        cur += 2;
+        cur++;
+        row += 2 + j;
     }
-
-    ctl->n_refs = i;
 
     refresh();
 }
