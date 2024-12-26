@@ -15,6 +15,7 @@
 #include <pipewire/pipewire.h>
 #include <pipewire/extensions/metadata.h>
 
+#include "array.h"
 
 #define VOLUME_ZERO ((uint32_t) 0U)
 #define VOLUME_FULL ((uint32_t) 0x1000U)
@@ -33,6 +34,9 @@ enum volume_method {
 enum node_flag {
     NODE_FLAG_SINK = 1 << 0,
     NODE_FLAG_SOURCE = 1 << 1,
+    NODE_FLAG_STREAM = 1 << 2,
+    NODE_FLAG_OUTPUT = 1 << 3,
+    NODE_FLAG_INPUT = 1 << 4,
 };
 
 struct ctl {
@@ -93,6 +97,9 @@ struct intf {
 
             bool mute;
             struct volume channel_volume;
+
+            struct array *ports;
+            struct array *links;
         } node;
         struct {
             uint32_t active_route_input;
@@ -101,10 +108,20 @@ struct intf {
         struct {
             enum pw_direction direction;
             uint32_t node;
+
+            struct intf *node_ref;
+            struct array *links;
         } port;
         struct {
             uint32_t output_port;
+            uint32_t output_node;
             uint32_t input_port;
+            uint32_t input_node;
+
+            struct intf *output_port_ref;
+            struct intf *output_node_ref;
+            struct intf *input_port_ref;
+            struct intf *input_node_ref;
         } link;
     };
 };
@@ -639,7 +656,13 @@ static void node_event_info(void *data, const struct pw_node_info *info)
                 SPA_FLAG_SET(intf->node.flags, NODE_FLAG_SINK);
             else if (spa_streq(str, "Audio/Source"))
                 SPA_FLAG_SET(intf->node.flags, NODE_FLAG_SOURCE);
+            else if (spa_streq(str, "Stream/Output/Audio"))
+                SPA_FLAG_SET(intf->node.flags, NODE_FLAG_OUTPUT | NODE_FLAG_STREAM);
+            else if (spa_streq(str, "Stream/Input/Audio"))
+                SPA_FLAG_SET(intf->node.flags, NODE_FLAG_INPUT | NODE_FLAG_STREAM);
         }
+
+        pw_properties_update(intf->props, info->props);
 
         log_debug("node#%d: device_id:%d profile_device_id:%d", intf->id,
             intf->node.device_id, intf->node.profile_device_id);
@@ -676,6 +699,43 @@ static void node_event_param(void *data, int seg,
     }
 }
 
+static void node_event_init(void *data)
+{
+    struct intf *intf = data;
+
+    intf->node.ports = array_new(sizeof(struct intf*));
+    intf->node.links = array_new(sizeof(struct intf*));
+}
+
+static void node_event_destroy(void *data)
+{
+    struct intf *intf = data, *target;
+    int i;
+
+    log_debug("node destroy");
+
+    for (i = 0; i < intf->node.ports->length; i++) {
+        target = array_get(intf->node.ports, i);
+        target->port.node = SPA_ID_INVALID;
+        target->port.node_ref = NULL;
+    }
+    array_free(intf->node.ports);
+    intf->node.ports = NULL;
+
+    for (i = 0; i < intf->node.links->length; i++) {
+        target = array_get(intf->node.links, i);
+        if (intf->id == target->link.output_node) {
+            target->link.output_node = SPA_ID_INVALID;
+            target->link.output_node_ref = NULL;
+        } else {
+            target->link.input_node = SPA_ID_INVALID;
+            target->link.input_node_ref = NULL;
+        }
+    }
+    array_free(intf->node.links);
+    intf->node.links = NULL;
+}
+
 static const struct pw_node_events node_events = {
     PW_VERSION_NODE_EVENTS,
     .info = node_event_info,
@@ -686,6 +746,8 @@ static const struct intf_info node_info = {
     .type = PW_TYPE_INTERFACE_Node,
     .version = PW_VERSION_NODE,
     .events = &node_events,
+    .init = node_event_init,
+    .destroy = node_event_destroy,
 };
 
 /** device */
@@ -805,6 +867,14 @@ static int metadata_event_property(void *data, uint32_t subject,
     return 0;
 }
 
+static void metadata_event_init(void *data)
+{
+    struct intf *intf = data;
+    struct ctl *ctl = intf->ctl;
+
+    ctl->metadata = (struct pw_metadata*)intf->proxy;
+}
+
 static const struct pw_metadata_events metadata_events = {
     PW_VERSION_METADATA_EVENTS,
     .property = metadata_event_property,
@@ -814,24 +884,85 @@ static const struct intf_info metadata_info = {
     .type = PW_TYPE_INTERFACE_Metadata,
     .version = PW_VERSION_METADATA,
     .events = &metadata_events,
+    .init = metadata_event_init,
 };
 
 /** link */
 
 static void link_event_info(void *data, const struct pw_link_info *info)
 {
-    struct intf *intf = data, *node;
+    struct intf *intf = data, *target;
     struct ctl *ctl = intf->ctl;
 
     if (info->change_mask & PW_LINK_CHANGE_MASK_PROPS) {
         intf->link.output_port = info->output_port_id;
+        intf->link.output_node = info->output_node_id;
         intf->link.input_port = info->input_port_id;
+        intf->link.input_node = info->input_node_id;
+
+        if ((target = find_node(ctl, intf->link.output_port, NULL, NULL)) &&
+            array_find_index(target->port.links, intf) < 0)
+        {
+            intf->link.output_port_ref = target;
+            array_append(target->port.links, intf);
+        }
+
+        if ((target = find_node(ctl, intf->link.output_node, NULL, NULL)) &&
+            array_find_index(target->node.links, intf) < 0)
+        {
+            intf->link.output_node_ref = target;
+            array_append(target->node.links, intf);
+        }
+
+        if ((target = find_node(ctl, intf->link.input_port, NULL, NULL)) &&
+            array_find_index(target->port.links, intf) < 0)
+        {
+            intf->link.input_port_ref = target;
+            array_append(target->port.links, intf);
+        }
+
+        if ((target = find_node(ctl, intf->link.input_node, NULL, NULL)) &&
+            array_find_index(target->node.links, intf) < 0)
+        {
+            intf->link.input_node_ref = target;
+            array_append(target->node.links, intf);
+        }
 
         log_debug("link#%d: out:%d in:%d", intf->id,
             intf->link.output_port, intf->link.input_port);
     }
 
     redraw(ctl);
+}
+
+static void link_event_destroy(void *data)
+{
+    struct intf *intf = data, *target;
+    int i;
+
+    if ((target = intf->link.output_port_ref) &&
+        (i = array_find_index(target->port.links, intf)) >= 0)
+    {
+        array_remove(target->port.links, i);
+    }
+
+    if ((target = intf->link.output_node_ref) &&
+        (i = array_find_index(target->node.links, intf)) >= 0)
+    {
+        array_remove(target->node.links, i);
+    }
+
+    if ((target = intf->link.input_port_ref) &&
+        (i = array_find_index(target->port.links, intf)) >= 0)
+    {
+        array_remove(target->port.links, i);
+    }
+
+    if ((target = intf->link.input_node_ref) &&
+        (i = array_find_index(target->node.links, intf)) >= 0)
+    {
+        array_remove(target->node.links, i);
+    }
 }
 
 static const struct pw_link_events link_events = {
@@ -843,21 +974,39 @@ static const struct intf_info link_info = {
     .type = PW_TYPE_INTERFACE_Link,
     .version = PW_VERSION_LINK,
     .events = &link_events,
+    .destroy = link_event_destroy,
 };
 
 /** port */
 
 static void port_event_info(void *data, const struct pw_port_info *info)
 {
-    struct intf *intf = data;
+    struct intf *intf = data, *target;
     struct ctl *ctl = intf->ctl;
     const char *str;
+    int index;
 
     if (info->change_mask & PW_PORT_CHANGE_MASK_PROPS) {
-        if ((str = pw_properties_get(intf->props, PW_KEY_NODE_ID)) != NULL)
+        if ((str = pw_properties_get(intf->props, PW_KEY_NODE_ID)) != NULL) {
             intf->port.node = atoi(str);
-        else
+            target = find_node(ctl, intf->port.node, NULL, NULL);
+
+            if (target &&
+                array_find_index(target->node.ports, intf) < 0)
+            {
+                intf->port.node_ref = target;
+                array_append(target->node.ports, intf);
+            }
+        } else {
+            if ((target = intf->port.node_ref) &&
+                (index = array_find_index(target->node.ports, intf)) >= 0)
+            {
+                intf->port.node_ref = NULL;
+                array_remove(target->node.ports, index);
+            }
+
             intf->port.node = SPA_ID_INVALID;
+        }
 
         intf->port.direction = info->direction;
 
@@ -869,6 +1018,38 @@ static void port_event_info(void *data, const struct pw_port_info *info)
     redraw(ctl);
 }
 
+static void port_event_init(void *data)
+{
+    struct intf *intf = data;
+
+    intf->port.links = array_new(sizeof(struct intf*));
+}
+
+static void port_event_destroy(void *data)
+{
+    struct intf *intf = data, *target;
+    int i;
+
+    if ((target = intf->port.node_ref) &&
+        (i = array_find_index(target->node.ports, intf)) >= 0)
+    {
+        array_remove(target->node.ports, i);
+    }
+
+    for (i = 0; i < intf->port.links->length; i++) {
+        target = array_get(intf->port.links, i);
+        if (intf->id == target->link.output_port) {
+            target->link.output_port = SPA_ID_INVALID;
+            target->link.output_port_ref = NULL;
+        } else {
+            target->link.input_port = SPA_ID_INVALID;
+            target->link.input_port_ref = NULL;
+        }
+    }
+    array_free(intf->port.links);
+    intf->port.links = NULL;
+}
+
 const struct pw_port_events port_events = {
     PW_VERSION_PORT_EVENTS,
     .info = port_event_info,
@@ -878,6 +1059,8 @@ const struct intf_info port_info = {
     .type = PW_TYPE_INTERFACE_Port,
     .version = PW_VERSION_PORT,
     .events = &port_events,
+    .init = port_event_init,
+    .destroy = port_event_destroy,
 };
 
 /** proxy */
