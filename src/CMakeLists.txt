@@ -11,8 +11,7 @@ add_library(PWMIXER
   ${SOURCES})
 
 add_executable(pwmixer
-  ${MAIN}
-  ${SOURCES})
+  ${MAIN})
 
 target_link_libraries(pwmixer
   m
