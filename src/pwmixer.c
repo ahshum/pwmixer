@@ -413,6 +413,9 @@ static void draw_intf(struct intf *intf, int row,
     const char *str;
     int b, vol, i;
 
+    move(row, 0);
+    clrtoeol();
+
     if (is_active)
         attron(A_BOLD);
 
@@ -468,12 +471,11 @@ static void redraw(struct ctl *ctl)
 {
     struct intf *intf, *child;
     enum pw_direction direction = cur_direction(ctl);
-    int is_active, row = 2, cur = 0, i, j;
+    int is_active, row = 0, cur = -1, i, j;
 
     sync_active(ctl);
-    erase();
 
-    move(0, 1);
+    move(row, 1);
     if (ctl->node_flags & NODE_FLAG_SINK)
         attron(A_BOLD);
     else
@@ -488,22 +490,29 @@ static void redraw(struct ctl *ctl)
         attroff(A_BOLD);
     printw("F2 Input");
     attroff(A_BOLD);
+    clrtoeol();
 
+    row++;
     for (i = 0; i < ctl->n_group; i++) {
+        cur++;
+        row++;
         intf = ctl->group[i].parent;
         draw_intf(intf, row, 1, cur == ctl->cursor, 0);
 
         for (j = 0; j < ctl->group[i].n_children; j++) {
             cur++;
+            row++;
             child = ctl->group[i].children[j];
-            draw_intf(child, row + 1 + j, 0,
+            draw_intf(child, row, 0,
                 cur == ctl->cursor,
                 j + 1 == ctl->group[i].n_children);
         }
 
-        cur++;
-        row += 2 + j;
+        move(++row, 0);
+        clrtoeol();
     }
+
+    clrtobot();
 
     refresh();
 }
@@ -590,11 +599,9 @@ static void run_curses(struct ctl *ctl)
         }
         case KEY_F(1):
             ctl->node_flags = NODE_FLAG_SINK;
-            erase();
             break;
         case KEY_F(2):
             ctl->node_flags = NODE_FLAG_SOURCE;
-            erase();
             break;
         case 'q':
             ctl_pipewire_free(ctl);
