@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <string.h>
 #include <signal.h>
 #include <stdarg.h>
@@ -66,6 +67,8 @@ struct intf_info {
     const char *type;
     uint32_t version;
     const void *events;
+    void (*init) (void *data);
+    pw_destroy_t destroy;
 };
 
 struct intf {
@@ -888,6 +891,10 @@ static void proxy_event_removed(void *data)
 static void proxy_event_destroy(void *data)
 {
     struct intf *intf = data;
+
+    if (intf->info->destroy)
+        intf->info->destroy(intf);
+
     spa_list_remove(&intf->ref);
     intf->proxy = NULL;
     pw_properties_free(intf->props);
@@ -961,8 +968,9 @@ static void registry_event_global(void *data, uint32_t id,
             &intf->object_listener,
             info->events, intf);
     }
-    if (spa_streq(type, PW_TYPE_INTERFACE_Metadata))
-        ctl->metadata = (struct pw_metadata*)proxy;
+
+    if (info->init)
+        info->init(intf);
 }
 
 static const struct pw_registry_events registry_events = {
